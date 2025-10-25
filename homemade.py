@@ -191,8 +191,6 @@ class MyBot(ExampleEngine):
              20,  20,   0,   0,   0,   0,  20,  20,
              20,  30,  10,   0,   0,  10,  30,  20
         ]
-        
-        # TODO: Add King end-game PST and logic to switch
 
         # Master lookup dictionary
         self.piece_psts = {
@@ -216,6 +214,7 @@ class MyBot(ExampleEngine):
                                [[0 for _ in range(64)] for _ in range(64)]]
         
         self.PAWN_SHIELD_PENALTY = 25
+        self.QUEEN_PAWN_SHIELD_PENALTY = 25
         self.ATTACKER_PROXIMITY_BONUS = 3
 
         self.NMP_REDUCTION = 2
@@ -224,6 +223,41 @@ class MyBot(ExampleEngine):
         self.LMR_MIN_DEPTH = 3
         self.LMR_MIN_MOVE_COUNT = 4
         self.LMR_BASE_REDUCTION = 1
+
+        self.ROOK_SEVENTH_RANK_BONUS = 35
+        self.ROOK_OPEN_FILE_BONUS = 20
+        self.ROOK_SEMI_OPEN_FILE_BONUS = 10
+        self.KNIGHT_OUTPOST_BONUS = 30
+        self.BISHOP_PAIR_BONUS = 50
+        self.DOUBLED_PAWN_PENALTY = 10
+        self.MOBILITY_WEIGHT = 1
+
+        self.KING_ENDGAME_PST = [
+            -50, -30, -10,   0,   0, -10, -30, -50,
+            -30, -10,  20,  30,  30,  20, -10, -30,
+            -10,  20,  40,  50,  50,  40,  20, -10,
+              0,  30,  50,  55,  55,  50,  30,   0,
+              0,  30,  50,  55,  55,  50,  30,   0,
+            -10,  20,  40,  50,  50,  40,  20, -10,
+            -30, -10,  20,  30,  30,  20, -10, -30,
+            -50, -30, -10,   0,   0, -10, -30, -50,
+        ]
+
+        self.ENDGAME_MATERIAL_THRESHOLD = (self.piece_values[chess.ROOK] * 2 +
+                                           self.piece_values[chess.KNIGHT] +
+                                           self.piece_values[chess.BISHOP])
+
+    def _get_game_phase(self, b: chess.Board) -> int:
+
+        material_count = 0
+        for color in [chess.WHITE, chess.BLACK]:
+            for pt in [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]:
+                material_count += len(b.pieces(pt, color)) * self.piece_values[pt]
+
+        if material_count < self.ENDGAME_MATERIAL_THRESHOLD:
+            return 1
+        else:
+            return 0
 
     def search(self, board: chess.Board, *args: HOMEMADE_ARGS_TYPE) -> PlayResult:
         # NOTE: The sections below are intentionally simple to keep the example short.
@@ -583,71 +617,158 @@ class MyBot(ExampleEngine):
     def evaluate(self, b: chess.Board) -> int:
         if b.is_game_over():
             outcome = b.outcome()
-            if outcome is None or outcome.winner is None:
-                return 0  # draw
+            if outcome is None or outcome.winner is None: return 0
             return 10_000_000 if outcome.winner is chess.WHITE else -10_000_000
 
+        game_phase = self._get_game_phase(b)
+        is_endgame = (game_phase == 1)
+
         score = 0
+        white_pawns = b.pieces(chess.PAWN, chess.WHITE)
+        black_pawns = b.pieces(chess.PAWN, chess.BLACK)
+
         for pt in self.piece_values:
+            material_value = self.piece_values[pt]
+            white_pieces = b.pieces(pt, chess.WHITE)
+            black_pieces = b.pieces(pt, chess.BLACK)
 
             if pt != chess.KING:
-                material_value = self.piece_values[pt]
-                score += material_value * (len(b.pieces(pt, chess.WHITE)) - len(b.pieces(pt, chess.BLACK)))
-            
-            pst = self.piece_psts.get(pt)
+                score += material_value * (len(white_pieces) - len(black_pieces))
+
+            if pt == chess.KING:
+                pst = self.KING_ENDGAME_PST if is_endgame else self.KING_PST
+            else:
+                pst = self.piece_psts.get(pt)
+
             if pst:
-                for sq in b.pieces(pt, chess.WHITE):
-                    score += pst[sq]
-                for sq in b.pieces(pt, chess.BLACK):
-                    score -= pst[chess.square_mirror(sq)]
+                for sq in white_pieces: score += pst[sq]
+                for sq in black_pieces: score -= pst[chess.square_mirror(sq)]
 
-        w_king_sq = b.king(chess.WHITE)
-        b_king_sq = b.king(chess.BLACK)
+        for file_index in range(8):
+            white_pawns_on_file = 0
+            for sq in white_pawns:
+                if chess.square_file(sq) == file_index:
+                    white_pawns_on_file += 1
 
-        w_king_file = chess.square_file(w_king_sq)
-        b_king_file = chess.square_file(b_king_sq)
+            black_pawns_on_file = 0
+            for sq in black_pawns:
+                if chess.square_file(sq) == file_index:
+                    black_pawns_on_file += 1
 
-        WHITE_KINGSIDE_SHIELD = {chess.F2, chess.G2, chess.H2, chess.F3, chess.G3, chess.H3}
-        WHITE_QUEENSIDE_SHIELD = {chess.A2, chess.B2, chess.C2, chess.A3, chess.B3, chess.C3}
-        BLACK_KINGSIDE_SHIELD = {chess.F7, chess.G7, chess.H7, chess.F6, chess.G6, chess.H6}
-        BLACK_QUEENSIDE_SHIELD = {chess.A7, chess.B7, chess.C7, chess.A6, chess.B6, chess.C6}
+            if white_pawns_on_file > 1: score -= (white_pawns_on_file - 1) * self.DOUBLED_PAWN_PENALTY
+            if black_pawns_on_file > 1: score += (black_pawns_on_file - 1) * self.DOUBLED_PAWN_PENALTY
 
-        w_pawns = b.pieces(chess.PAWN, chess.WHITE)
-        b_pawns = b.pieces(chess.PAWN, chess.BLACK)
-
-        # kingside castled
-        if w_king_file >= 5:
-            shield_missing = WHITE_KINGSIDE_SHIELD.difference(w_pawns)
-            score -= len(shield_missing) * self.PAWN_SHIELD_PENALTY
-        elif w_king_file <= 2: # queenside
-            shield_missing = WHITE_QUEENSIDE_SHIELD.difference(w_pawns)
-            score -= len(shield_missing) * self.PAWN_SHIELD_PENALTY
-
-        # kingside black
-        if b_king_file >= 5:
-            shield_missing = BLACK_KINGSIDE_SHIELD.difference(b_pawns)
-            score += len(shield_missing) * self.PAWN_SHIELD_PENALTY
-        elif b_king_file <= 2:
-            shield_missing = BLACK_QUEENSIDE_SHIELD.difference(b_pawns)
-            score += len(shield_missing) * self.PAWN_SHIELD_PENALTY
-
-        def get_coords(sq):
-            return (chess.square_file(sq), chess.square_rank(sq))
-        
-        (w_king_file, w_king_rank) = get_coords(w_king_sq)
-        (b_king_file, b_king_rank) = get_coords(b_king_sq)
-
+        mobility_score = 0
         for pt in [chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]:
             for sq in b.pieces(pt, chess.WHITE):
-                (file, rank) = get_coords(sq)
-                dist = abs(file - b_king_file) + abs(rank - b_king_rank)
-                score += (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
-
+                mobility_score += bin(b.attacks_mask(sq)).count('1')
             for sq in b.pieces(pt, chess.BLACK):
-                (file, rank) = get_coords(sq)
-                dist = abs(file - w_king_file) + abs(rank - w_king_rank)
+                mobility_score -= bin(b.attacks_mask(sq)).count('1')
+        score += mobility_score * self.MOBILITY_WEIGHT
 
-                score -= (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
+        if len(b.pieces(chess.BISHOP, chess.WHITE)) >= 2: score += self.BISHOP_PAIR_BONUS
+        if len(b.pieces(chess.BISHOP, chess.BLACK)) >= 2: score -= self.BISHOP_PAIR_BONUS
+
+        white_rooks = b.pieces(chess.ROOK, chess.WHITE)
+        black_rooks = b.pieces(chess.ROOK, chess.BLACK)
+        for file_index in range(8):
+            white_pawns_on_file_bool = False
+            for sq in white_pawns:
+                 if chess.square_file(sq) == file_index:
+                      white_pawns_on_file_bool = True
+                      break
+            black_pawns_on_file_bool = False
+            for sq in black_pawns:
+                 if chess.square_file(sq) == file_index:
+                      black_pawns_on_file_bool = True
+                      break
+
+            is_open = not white_pawns_on_file_bool and not black_pawns_on_file_bool
+            is_semi_open_white = not white_pawns_on_file_bool
+
+            for sq in white_rooks:
+                if chess.square_file(sq) == file_index:
+                    if is_open: score += self.ROOK_OPEN_FILE_BONUS
+                    elif is_semi_open_white: score += self.ROOK_SEMI_OPEN_FILE_BONUS
+                    if chess.square_rank(sq) == 6: score += self.ROOK_SEVENTH_RANK_BONUS
+
+            is_semi_open_black = not black_pawns_on_file_bool
+            for sq in black_rooks:
+                 if chess.square_file(sq) == file_index:
+                    if is_open: score -= self.ROOK_OPEN_FILE_BONUS
+                    elif is_semi_open_black: score -= self.ROOK_SEMI_OPEN_FILE_BONUS
+                    if chess.square_rank(sq) == 1: score -= self.ROOK_SEVENTH_RANK_BONUS
+
+        WHITE_OUTPOST_RANKS = {3, 4, 5}
+        BLACK_OUTPOST_RANKS = {4, 3, 2}
+        for sq in b.pieces(chess.KNIGHT, chess.WHITE):
+            rank = chess.square_rank(sq)
+            file = chess.square_file(sq)
+            if rank in WHITE_OUTPOST_RANKS:
+                supported = False
+                if file > 0 and b.piece_at(sq - 9) == chess.Piece(chess.PAWN, chess.WHITE): supported = True
+                if file < 7 and b.piece_at(sq - 7) == chess.Piece(chess.PAWN, chess.WHITE): supported = True
+
+                attacked_by_pawn = False
+                if file > 0 and b.piece_at(sq + 7) == chess.Piece(chess.PAWN, chess.BLACK): attacked_by_pawn = True
+                if file < 7 and b.piece_at(sq + 9) == chess.Piece(chess.PAWN, chess.BLACK): attacked_by_pawn = True
+
+                if supported and not attacked_by_pawn:
+                    score += self.KNIGHT_OUTPOST_BONUS
+
+        for sq in b.pieces(chess.KNIGHT, chess.BLACK):
+            rank = chess.square_rank(sq)
+            file = chess.square_file(sq)
+            if rank in BLACK_OUTPOST_RANKS:
+                supported = False
+                if file > 0 and b.piece_at(sq + 9) == chess.Piece(chess.PAWN, chess.BLACK): supported = True
+                if file < 7 and b.piece_at(sq + 7) == chess.Piece(chess.PAWN, chess.BLACK): supported = True
+
+                attacked_by_pawn = False
+                if file > 0 and b.piece_at(sq - 7) == chess.Piece(chess.PAWN, chess.WHITE): attacked_by_pawn = True
+                if file < 7 and b.piece_at(sq - 9) == chess.Piece(chess.PAWN, chess.WHITE): attacked_by_pawn = True
+
+                if supported and not attacked_by_pawn:
+                    score -= self.KNIGHT_OUTPOST_BONUS
+
+        if not is_endgame:
+            w_king_sq = b.king(chess.WHITE)
+            b_king_sq = b.king(chess.BLACK)
+            w_king_file = chess.square_file(w_king_sq)
+            b_king_file = chess.square_file(b_king_sq)
+
+            WHITE_KINGSIDE_SHIELD = {chess.F2, chess.G2, chess.H2, chess.F3, chess.G3, chess.H3}
+            WHITE_QUEENSIDE_SHIELD = {chess.A2, chess.B2, chess.C2, chess.A3, chess.B3, chess.C3}
+            BLACK_KINGSIDE_SHIELD = {chess.F7, chess.G7, chess.H7, chess.F6, chess.G6, chess.H6}
+            BLACK_QUEENSIDE_SHIELD = {chess.A7, chess.B7, chess.C7, chess.A6, chess.B6, chess.C6}
+
+            if w_king_file >= 5:
+                shield_missing = WHITE_KINGSIDE_SHIELD.difference(white_pawns)
+                score -= len(shield_missing) * self.PAWN_SHIELD_PENALTY
+            elif w_king_file <= 2:
+                shield_missing = WHITE_QUEENSIDE_SHIELD.difference(white_pawns)
+                score -= len(shield_missing) * self.QUEEN_PAWN_SHIELD_PENALTY
+
+            if b_king_file >= 5:
+                shield_missing = BLACK_KINGSIDE_SHIELD.difference(black_pawns)
+                score += len(shield_missing) * self.PAWN_SHIELD_PENALTY
+            elif b_king_file <= 2:
+                shield_missing = BLACK_QUEENSIDE_SHIELD.difference(black_pawns)
+                score += len(shield_missing) * self.QUEEN_PAWN_SHIELD_PENALTY
+
+            def get_coords(sq): return (chess.square_file(sq), chess.square_rank(sq))
+            (w_king_file_coord, w_king_rank) = get_coords(w_king_sq)
+            (b_king_file_coord, b_king_rank) = get_coords(b_king_sq)
+
+            for pt in [chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]:
+                for sq in b.pieces(pt, chess.WHITE):
+                    (file, rank) = get_coords(sq)
+                    dist = abs(file - b_king_file_coord) + abs(rank - b_king_rank)
+                    score += (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
+                for sq in b.pieces(pt, chess.BLACK):
+                    (file, rank) = get_coords(sq)
+                    dist = abs(file - w_king_file_coord) + abs(rank - w_king_rank)
+                    score -= (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
 
         return score
     
