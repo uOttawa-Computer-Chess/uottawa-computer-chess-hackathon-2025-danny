@@ -294,7 +294,7 @@ class MyBot(ExampleEngine):
                                [[0 for _ in range(64)] for _ in range(64)]]
 
         if my_time is not None:
-            ideal_time = (my_time / 30) + (my_inc * 0.75)
+            ideal_time = (my_time / 35) + (my_inc * 0.75)
             max_time = my_time / 8
 
             move_budget = min(ideal_time, max_time)
