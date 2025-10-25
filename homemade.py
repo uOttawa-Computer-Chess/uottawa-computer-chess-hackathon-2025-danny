@@ -231,6 +231,8 @@ class MyBot(ExampleEngine):
         self.BISHOP_PAIR_BONUS = 50
         self.DOUBLED_PAWN_PENALTY = 10
         self.MOBILITY_WEIGHT = 1
+        self.BISHOP_OPEN_DIAGONAL_BONUS = 8
+        self.BISHOP_ATTACKING_DIAGONAL_BONUS = 12
 
         self.KING_ENDGAME_PST = [
             -50, -30, -10,   0,   0, -10, -30, -50,
@@ -626,6 +628,7 @@ class MyBot(ExampleEngine):
         score = 0
         white_pawns = b.pieces(chess.PAWN, chess.WHITE)
         black_pawns = b.pieces(chess.PAWN, chess.BLACK)
+        all_pawns = white_pawns | black_pawns
 
         for pt in self.piece_values:
             material_value = self.piece_values[pt]
@@ -668,6 +671,56 @@ class MyBot(ExampleEngine):
 
         if len(b.pieces(chess.BISHOP, chess.WHITE)) >= 2: score += self.BISHOP_PAIR_BONUS
         if len(b.pieces(chess.BISHOP, chess.BLACK)) >= 2: score -= self.BISHOP_PAIR_BONUS
+
+        white_bishops = b.pieces(chess.BISHOP, chess.WHITE)
+        black_bishops = b.pieces(chess.BISHOP, chess.BLACK)
+        b_king_sq = b.king(chess.BLACK)
+        w_king_sq = b.king(chess.WHITE)
+
+        black_king_zone = {sq for sq in chess.SQUARES if chess.square_distance(sq, b_king_sq) <= 2}
+        white_king_zone = {sq for sq in chess.SQUARES if chess.square_distance(sq, w_king_sq) <= 2}
+
+        for sq in white_bishops:
+            attacked_squares = b.attacks(sq)
+            open_diag_bonus_applied = False
+            attacking_diag_bonus_applied = False
+            for target_sq in attacked_squares:
+                 path_mask = chess.BB_RAYS[sq][target_sq]
+                 is_open = True
+                 for path_sq in chess.scan_forward(path_mask):
+                     if path_sq in all_pawns:
+                         is_open = False
+                         break
+
+                 if is_open and not open_diag_bonus_applied:
+                      score += self.BISHOP_OPEN_DIAGONAL_BONUS
+                      open_diag_bonus_applied = True
+                 if is_open and not attacking_diag_bonus_applied:
+                     if any(atk_sq in black_king_zone for atk_sq in attacked_squares):
+                          score += self.BISHOP_ATTACKING_DIAGONAL_BONUS
+                          attacking_diag_bonus_applied = True
+                 if open_diag_bonus_applied and attacking_diag_bonus_applied: break
+
+        for sq in black_bishops:
+            attacked_squares = b.attacks(sq)
+            open_diag_bonus_applied = False
+            attacking_diag_bonus_applied = False
+            for target_sq in attacked_squares:
+                 path_mask = chess.BB_RAYS[sq][target_sq]
+                 is_open = True
+                 for path_sq in chess.scan_forward(path_mask):
+                     if path_sq in all_pawns:
+                         is_open = False
+                         break
+
+                 if is_open and not open_diag_bonus_applied:
+                      score -= self.BISHOP_OPEN_DIAGONAL_BONUS
+                      open_diag_bonus_applied = True
+                 if is_open and not attacking_diag_bonus_applied:
+                     if any(atk_sq in white_king_zone for atk_sq in attacked_squares):
+                          score -= self.BISHOP_ATTACKING_DIAGONAL_BONUS
+                          attacking_diag_bonus_applied = True
+                 if open_diag_bonus_applied and attacking_diag_bonus_applied: break
 
         white_rooks = b.pieces(chess.ROOK, chess.WHITE)
         black_rooks = b.pieces(chess.ROOK, chess.BLACK)
