@@ -134,8 +134,8 @@ class MyBot(ExampleEngine):
               0,   0,   0,   0,   0,   0,   0,   0,
              50,  50,  50,  50,  50,  50,  50,  50,
              10,  10,  20,  30,  30,  20,  10,  10,
-              5,   5,  10,  25,  25,  10,   5,   5,
-              0,   0,   0,  20,  20,   0,   0,   0,
+              5,   5,  15,  30,  30,  15,   5,   5,
+              0,   0,  10,  25,  25,  10,   0,   0,
               5,  -5, -10,   0,   0, -10,  -5,   5,
               5,  10,  10, -20, -20,  10,  10,   5,
               0,   0,   0,   0,   0,   0,   0,   0
@@ -245,6 +245,9 @@ class MyBot(ExampleEngine):
             -50, -30, -10,   0,   0, -10, -30, -50,
         ]
 
+        self.CASTLING_BONUS = 30
+        self.UNDEVELOPED_MINOR_PENALTY = 8
+
         self.ENDGAME_MATERIAL_THRESHOLD = (self.piece_values[chess.ROOK] * 2 +
                                            self.piece_values[chess.KNIGHT] +
                                            self.piece_values[chess.BISHOP])
@@ -291,7 +294,7 @@ class MyBot(ExampleEngine):
                                [[0 for _ in range(64)] for _ in range(64)]]
 
         if my_time is not None:
-            ideal_time = (my_time / 40) + (my_inc * 0.75)
+            ideal_time = (my_time / 30) + (my_inc * 0.75)
             max_time = my_time / 8
 
             move_budget = min(ideal_time, max_time)
@@ -785,6 +788,20 @@ class MyBot(ExampleEngine):
                     score -= self.KNIGHT_OUTPOST_BONUS
 
         if not is_endgame:
+            # White Knights on starting squares
+            if b.piece_at(chess.B1) == chess.Piece(chess.KNIGHT, chess.WHITE): score -= self.UNDEVELOPED_MINOR_PENALTY
+            if b.piece_at(chess.G1) == chess.Piece(chess.KNIGHT, chess.WHITE): score -= self.UNDEVELOPED_MINOR_PENALTY
+            # White Bishops on starting squares
+            if b.piece_at(chess.C1) == chess.Piece(chess.BISHOP, chess.WHITE): score -= self.UNDEVELOPED_MINOR_PENALTY
+            if b.piece_at(chess.F1) == chess.Piece(chess.BISHOP, chess.WHITE): score -= self.UNDEVELOPED_MINOR_PENALTY
+
+            # Black Knights on starting squares
+            if b.piece_at(chess.B8) == chess.Piece(chess.KNIGHT, chess.BLACK): score += self.UNDEVELOPED_MINOR_PENALTY
+            if b.piece_at(chess.G8) == chess.Piece(chess.KNIGHT, chess.BLACK): score += self.UNDEVELOPED_MINOR_PENALTY
+            # Black Bishops on starting squares
+            if b.piece_at(chess.C8) == chess.Piece(chess.BISHOP, chess.BLACK): score += self.UNDEVELOPED_MINOR_PENALTY
+            if b.piece_at(chess.F8) == chess.Piece(chess.BISHOP, chess.BLACK): score += self.UNDEVELOPED_MINOR_PENALTY
+
             w_king_sq = b.king(chess.WHITE)
             b_king_sq = b.king(chess.BLACK)
             w_king_file = chess.square_file(w_king_sq)
