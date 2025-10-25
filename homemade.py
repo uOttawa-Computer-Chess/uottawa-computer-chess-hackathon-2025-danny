@@ -9,6 +9,8 @@ import random
 from lib.engine_wrapper import MinimalEngine
 from lib.lichess_types import MOVE, HOMEMADE_ARGS_TYPE
 import logging
+import time
+import chess.polyglot
 
 
 # Use this logger variable to print messages to the console or log files.
@@ -116,6 +118,113 @@ class MyBot(ExampleEngine):
     transposition table, and a richer evaluator to make it competitive.
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.piece_values = {
+            chess.PAWN: 100,
+            chess.KNIGHT: 320,
+            chess.BISHOP: 330,
+            chess.ROOK: 500,
+            chess.QUEEN: 900,
+            chess.KING: 20000,
+        }
+
+        self.PAWN_PST = [
+              0,   0,   0,   0,   0,   0,   0,   0,
+             50,  50,  50,  50,  50,  50,  50,  50,
+             10,  10,  20,  30,  30,  20,  10,  10,
+              5,   5,  10,  25,  25,  10,   5,   5,
+              0,   0,   0,  20,  20,   0,   0,   0,
+              5,  -5, -10,   0,   0, -10,  -5,   5,
+              5,  10,  10, -20, -20,  10,  10,   5,
+              0,   0,   0,   0,   0,   0,   0,   0
+        ]
+        self.KNIGHT_PST = [
+            -50, -40, -30, -30, -30, -30, -40, -50,
+            -40, -20,   0,   0,   0,   0, -20, -40,
+            -30,   0,  10,  15,  15,  10,   0, -30,
+            -30,   5,  15,  20,  20,  15,   5, -30,
+            -30,   0,  15,  20,  20,  15,   0, -30,
+            -30,   5,  10,  15,  15,  10,   5, -30,
+            -40, -20,   0,   5,   5,   0, -20, -40,
+            -50, -40, -30, -30, -30, -30, -40, -50,
+        ]
+        self.BISHOP_PST = [
+            -20, -10, -10, -10, -10, -10, -10, -20,
+            -10,   0,   0,   0,   0,   0,   0, -10,
+            -10,   0,   5,  10,  10,   5,   0, -10,
+            -10,   5,   5,  10,  10,   5,   5, -10,
+            -10,   0,  10,  10,  10,  10,   0, -10,
+            -10,  10,  10,  10,  10,  10,  10, -10,
+            -10,   5,   0,   0,   0,   0,   5, -10,
+            -20, -10, -10, -10, -10, -10, -10, -20,
+        ]
+        self.ROOK_PST = [
+              0,   0,   0,   0,   0,   0,   0,   0,
+              5,  10,  10,  10,  10,  10,  10,   5,
+             -5,   0,   0,   0,   0,   0,   0,  -5,
+             -5,   0,   0,   0,   0,   0,   0,  -5,
+             -5,   0,   0,   0,   0,   0,   0,  -5,
+             -5,   0,   0,   0,   0,   0,   0,  -5,
+             -5,   0,   0,   0,   0,   0,   0,  -5,
+              0,   0,   0,   5,   5,   0,   0,   0
+        ]
+        self.QUEEN_PST = [
+            -20, -10, -10,  -5,  -5, -10, -10, -20,
+            -10,   0,   0,   0,   0,   0,   0, -10,
+            -10,   0,   5,   5,   5,   5,   0, -10,
+             -5,   0,   5,   5,   5,   5,   0,  -5,
+              0,   0,   5,   5,   5,   5,   0,  -5,
+            -10,   5,   5,   5,   5,   5,   0, -10,
+            -10,   0,   5,   0,   0,   0,   0, -10,
+            -20, -10, -10,  -5,  -5, -10, -10, -20
+        ]
+        # King safety (mid-game)
+        self.KING_PST = [
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -20, -30, -30, -40, -40, -30, -30, -20,
+            -10, -20, -20, -20, -20, -20, -20, -10,
+             20,  20,   0,   0,   0,   0,  20,  20,
+             20,  30,  10,   0,   0,  10,  30,  20
+        ]
+        
+        # TODO: Add King end-game PST and logic to switch
+
+        # Master lookup dictionary
+        self.piece_psts = {
+            chess.PAWN: self.PAWN_PST,
+            chess.KNIGHT: self.KNIGHT_PST,
+            chess.BISHOP: self.BISHOP_PST,
+            chess.ROOK: self.ROOK_PST,
+            chess.QUEEN: self.QUEEN_PST,
+            chess.KING: self.KING_PST,
+        }
+
+        self.transposition_table = {}
+        self.TT_FLAG_EXACT = 0
+        self.TT_FLAG_LOWER = 1
+        self.TT_FLAG_UPPER = 2
+
+        self.max_ply = 100
+        self.killer_moves = [[None, None] for _ in range (self.max_ply)]
+
+        self.history_scores = [[[0 for _ in range(64)] for _ in range(64)],
+                               [[0 for _ in range(64)] for _ in range(64)]]
+        
+        self.PAWN_SHIELD_PENALTY = 25
+        self.ATTACKER_PROXIMITY_BONUS = 3
+
+        self.NMP_REDUCTION = 2
+        self.NMP_MIN_DEPTH = 3
+
+        self.LMR_MIN_DEPTH = 3
+        self.LMR_MIN_MOVE_COUNT = 4
+        self.LMR_BASE_REDUCTION = 1
+
     def search(self, board: chess.Board, *args: HOMEMADE_ARGS_TYPE) -> PlayResult:
         # NOTE: The sections below are intentionally simple to keep the example short.
         # They demonstrate the structure of a search but also highlight the engine's
@@ -136,96 +245,409 @@ class MyBot(ExampleEngine):
                 my_time = time_limit.black_clock if isinstance(time_limit.black_clock, (int, float)) else 0
                 my_inc = time_limit.black_inc if isinstance(time_limit.black_inc, (int, float)) else 0
 
-        # Map a rough time budget to a coarse fixed depth.
-        # Examples:
-        # - >= 60s: depth 4
-        # - >= 20s: depth 3
-        # - >= 5s:  depth 2
-        # - else:   depth 1
-        remaining = my_time if isinstance(my_time, (int, float)) else None
-        inc = my_inc if isinstance(my_inc, (int, float)) else 0
-        budget = (remaining or 0) + 2 * inc  # crude increment bonus
-        if remaining is None:
-            total_depth = 4
-        elif budget >= 60:
-            total_depth = 4
-        elif budget >= 20:
-            total_depth = 3
-        elif budget >= 5:
-            total_depth = 2
-        else:
-            total_depth = 1
-        total_depth = max(1, int(total_depth))
+        start_time = time.monotonic()
+        move_budget = 3 # in seconds
 
-        # --- simple material evaluator (White-positive score) ---
-        def evaluate(b: chess.Board) -> int:
-            # Large score for terminal outcomes
-            if b.is_game_over():
-                outcome = b.outcome()
-                if outcome is None or outcome.winner is None:
-                    return 0  # draw
-                return 10_000_000 if outcome.winner is chess.WHITE else -10_000_000
+        self.transposition_table = {}
 
-            values = {
-                chess.PAWN: 100,
-                chess.KNIGHT: 320,
-                chess.BISHOP: 330,
-                chess.ROOK: 500,
-                chess.QUEEN: 900,
-                chess.KING: 0,  # king material ignored (checkmates handled above)
-            }
-            score = 0
-            for pt, v in values.items():
-                score += v * (len(b.pieces(pt, chess.WHITE)) - len(b.pieces(pt, chess.BLACK)))
-            return score
+        self.killer_moves = [[None, None] for _ in range(self.max_ply)]
+        self.history_scores = [[[0 for _ in range(64)] for _ in range(64)],
+                               [[0 for _ in range(64)] for _ in range(64)]]
 
-        # --- plain minimax (no alpha-beta) ---
-        def minimax(b: chess.Board, depth: int, maximizing: bool) -> int:
-            if depth == 0 or b.is_game_over():
-                return evaluate(b)
+        if my_time is not None:
+            ideal_time = (my_time / 40) + (my_inc * 0.75)
+            max_time = my_time / 8
 
-            if maximizing:
-                best = -10**12
-                for m in b.legal_moves:
-                    b.push(m)
-                    val = minimax(b, depth - 1, False)
-                    b.pop()
-                    if val > best:
-                        best = val
-                return best
-            else:
-                best = 10**12
-                for m in b.legal_moves:
-                    b.push(m)
-                    val = minimax(b, depth - 1, True)
-                    b.pop()
-                    if val < best:
-                        best = val
-                return best
+            move_budget = min(ideal_time, max_time)
 
-        # --- root move selection ---
-        legal = list(board.legal_moves)
-        if not legal:
-            # Should not happen during normal play; fall back defensively
-            return PlayResult(random.choice(list(board.legal_moves)), None)
+            if my_time < 10:
+                move_budget = min(my_time / 20, 0.4)
+
+            move_budget = min(move_budget, 5)
+            move_budget = max(move_budget, 0.1)
 
         maximizing = board.turn == chess.WHITE
         best_move = None
-        best_eval = -10**12 if maximizing else 10**12
+        pv = []
 
-        # Lookahead depth chosen by the simple time heuristic; subtract one for the root move
-        for m in legal:
-            board.push(m)
-            val = minimax(board, total_depth - 1, not maximizing)
-            board.pop()
+        for i in range(1, 100):
+            time_spent = time.monotonic() - start_time
+            if time_spent > move_budget:
+                break
 
-            if maximizing and val > best_eval:
-                best_eval, best_move = val, m
-            elif not maximizing and val < best_eval:
-                best_eval, best_move = val, m
+            # --- root move selection ---
+            legal = self.root_order_moves(board, pv) # TODO: Sort with most likely best moves
+            if not legal:
+                # Should not happen during normal play; fall back defensively
+                return PlayResult(random.choice(list(board.legal_moves)), None)
 
-        # Fallback in rare cases (shouldn't trigger)
-        if best_move is None:
-            best_move = legal[0]
+            best_eval = -10**12 if maximizing else 10**12
+            current_best_move = None
+            current_best_pv = []
+
+            # Lookahead depth chosen by the simple time heuristic; subtract one for the root move
+            for m in legal:
+                board.push(m)
+                val, returned_pv = self.minimax(board, i - 1, 0, -10**12, 10**12, not maximizing)
+                board.pop()
+
+                if maximizing and val > best_eval:
+                    best_eval, current_best_move = val, m
+                    current_best_pv = [m]+ returned_pv
+                elif not maximizing and val < best_eval:
+                    best_eval, current_best_move = val, m
+                    current_best_pv = [m] + returned_pv
+            
+            # force check?
+            if abs(best_eval) > 9_000_000:
+                break
+
+            best_move = current_best_move
+            pv = current_best_pv
+
+            # if (time_spent > budget / 2): break ?? improve this
+
+            # Fallback in rare cases (shouldn't trigger)
+            if best_move is None:
+                best_move = legal[0]
 
         return PlayResult(best_move, None)
+    
+    def get_ordered_captures(self, board: chess.Board):
+        moves = []
+        for m in board.legal_moves:
+            if board.is_capture(m):
+                victim_type = board.piece_type_at(m.to_square)
+                attacker_type = board.piece_type_at(m.from_square)
+
+                if board.is_en_passant(m):
+                    victim_type = chess.PAWN
+
+                if victim_type is None or attacker_type is None:
+                    continue
+
+                score = 1_000_000 + (self.piece_values[victim_type] * 10) - self.piece_values[attacker_type]
+                moves.append((m, score))
+        
+        moves.sort(key=lambda item: item[1], reverse=True)
+        return [m for m, _ in moves]
+    
+    def get_ordered_moves(self, board: chess.Board, ply: int = 0, tt_move: chess.Move | None = None) -> list[chess.Move]:
+        killers = self.killer_moves[ply] if ply < self.max_ply else []
+        player_history = self.history_scores[board.turn]
+
+        moves = []
+        for m in board.legal_moves:
+            score = 0
+
+            if m == tt_move:
+                score = 2_000_000
+
+            elif board.is_capture(m):
+                victim_type = board.piece_type_at(m.to_square)
+                attacker_type = board.piece_type_at(m.from_square)
+
+                if board.is_en_passant(m):
+                    victim_type = chess.PAWN
+
+                if victim_type is None or attacker_type is None:
+                    continue
+
+                score = 1_000_000 + (self.piece_values[victim_type] * 10) - self.piece_values[attacker_type]
+                # TODO
+
+            elif m in killers:
+                score = 800_000
+
+            else:
+                score = player_history[m.from_square][m.to_square]
+
+            moves.append((m, score))
+        
+        moves.sort(key=lambda move_score: move_score[1], reverse=True)
+        return [m for m, _ in moves]
+
+    def root_order_moves(self, board: chess.Board, pv: list[chess.Move]) -> list[chess.Move]:
+        pv_move = pv[0] if pv else None
+        
+        def get_sort_key(m: chess.Move):
+            if m == pv_move:
+                return 3_000_000
+
+            score = 0
+            if board.is_capture(m):
+                victim_type = board.piece_type_at(m.to_square)
+                attacker_type = board.piece_type_at(m.from_square)
+
+                if board.is_en_passant(m): victim_type = chess.PAWN
+                if victim_type is None or attacker_type is None: return 0
+
+                # MVV/LVA
+                score = 1_000_000 + (self.piece_values[victim_type] * 10) - self.piece_values[attacker_type]
+    
+            return score
+
+        legal_moves = list(board.legal_moves)
+        legal_moves.sort(key=get_sort_key, reverse=True)
+        return legal_moves
+
+     # --- plain minimax (no alpha-beta) ---
+    def minimax(self, b: chess.Board, depth: int, ply: int, alpha: int, beta: int, maximizing: bool) -> tuple[int, list[chess.move]]:
+        o_alpha = alpha
+        hash_key = chess.polyglot.zobrist_hash(b)
+
+        tt_entry = self.transposition_table.get(hash_key)
+        tt_move = None
+
+        if tt_entry:
+            tt_depth, tt_score, tt_flag, tt_best_move = tt_entry
+            tt_move = tt_best_move
+
+            if tt_depth >= depth:
+                if tt_flag == self.TT_FLAG_EXACT:
+                    return (tt_score, [tt_best_move] if tt_best_move else [])
+                elif tt_flag == self.TT_FLAG_LOWER:
+                    alpha = max(alpha, tt_score)
+                elif tt_flag == self.TT_FLAG_UPPER:
+                    beta = min(beta, tt_score)
+                
+                if beta <= alpha:
+                    return (tt_score, [tt_best_move] if tt_best_move else [])
+
+        if b.is_game_over():
+            return (self.evaluate(b), [])
+        if depth == 0:
+            q_score = self.q_search(b, alpha, beta, maximizing)
+            return (q_score, [])
+
+        # Base case done
+
+        is_in_check = b.is_check()
+        has_major_pieces = (b.occupied_co[b.turn] & ~b.pawns & ~b.kings) != 0
+
+        if (depth >= self.NMP_MIN_DEPTH and not is_in_check and has_major_pieces and ply > 0):
+            b.push(chess.Move.null())
+
+            new_depth = depth - 1 - self.NMP_REDUCTION
+
+            val, _ = self.minimax(b, new_depth, ply + 1, -beta, -alpha, not maximizing)
+            val = -val
+
+            b.pop()
+
+            if val >= beta:
+                if not tt_entry or new_depth >= tt_entry[0]:
+                     self.transposition_table[hash_key] = (new_depth, beta, self.TT_FLAG_LOWER, None)
+                return (beta, [])
+
+        moves = self.get_ordered_moves(b, ply, tt_move)
+        killers = self.killer_moves[ply] if ply < self.max_ply else []
+
+        best_move = None
+        best_pv = []
+        move_count = 0
+
+        if maximizing:
+            best = -10**12
+
+            for m in moves:
+                move_count += 1
+                reduction = 0
+
+                apply_lmr = (depth >= self.LMR_MIN_DEPTH and
+                             move_count >= self.LMR_MIN_MOVE_COUNT and
+                             not is_in_check and
+                             not b.is_capture(m) and
+                             m != tt_move and
+                             m not in killers)
+
+                b.push(m)
+
+                if apply_lmr:
+                    reduction = self.LMR_BASE_REDUCTION
+                    if move_count > 6: reduction += 1
+                    reduction = min(reduction, depth-1)
+
+                    val, current_pv = self.minimax(b, depth - 1, ply + 1, alpha, beta, False)
+
+                    if val > alpha:
+                        val, current_pv = self.minimax(b, depth - 1, ply + 1, alpha, beta, False)
+                else:
+                        val, current_pv = self.minimax(b, depth - 1, ply + 1, alpha, beta, False)
+
+                b.pop()
+
+
+                if val > best:
+                    best = val
+                    best_pv = [m] + current_pv
+                    best_move = m
+                alpha = max(alpha, val)
+
+                if beta <= alpha:
+                    if not b.is_capture(m):
+                        self.store_killer_move(m, ply)
+                        self.history_scores[b.turn][m.from_square][m.to_square] += depth * depth
+                    break
+        else:
+            best = 10**12
+            move_count = 0
+            for m in moves:
+                move_count += 1
+                reduction = 0
+
+                apply_lmr = (depth >= self.LMR_MIN_DEPTH and
+                             move_count >= self.LMR_MIN_MOVE_COUNT and
+                             not is_in_check and
+                             not b.is_capture(m) and
+                             m != tt_move and
+                             m not in killers)
+
+                b.push(m)
+
+                if apply_lmr:
+                    reduction = self.LMR_BASE_REDUCTION
+                    if move_count > 6: reduction += 1
+                    reduction = min(reduction, depth - 1)
+
+                    val, current_pv = self.minimax(b, depth - 1 - reduction, ply + 1, alpha, beta, True)
+                    if val < beta:
+                        val, current_pv = self.minimax(b, depth - 1, ply + 1, alpha, beta, True) 
+                else:
+                    val, current_pv = self.minimax(b, depth - 1, ply + 1, alpha, beta, True)
+
+                b.pop()
+                if val < best:
+                    best = val
+                    best_pv = [m] + current_pv
+                    best_move = m
+                beta = min(beta, val)
+
+                if beta <= alpha:
+                    if (not b.is_capture(m)):
+                        self.store_killer_move(m, ply)
+                        self.history_scores[b.turn][m.from_square][m.to_square] += depth * depth
+                    break
+
+        flag_to_store = self.TT_FLAG_EXACT
+        if best <= o_alpha:
+            flag_to_store = self.TT_FLAG_UPPER
+        elif best >= beta:
+            flag_to_store = self.TT_FLAG_LOWER
+
+        if not tt_entry or depth >= tt_entry[0]:
+            self.transposition_table[hash_key] = (depth, best, flag_to_store, best_move)
+
+        return (best, best_pv)
+
+    def store_killer_move(self, move: chess.Move, ply: int):
+        if ply >= self.max_ply:
+            return
+        
+        killers = self.killer_moves[ply]
+        if move != killers[0]:
+            killers[1] = killers[0]
+            killers[0] = move
+
+    def q_search(self, b: chess.Board, alpha: int, beta: int, maximizing: bool) -> int:
+            standard_score = self.evaluate(b)
+
+            if maximizing:
+                if standard_score >= beta:
+                    return beta
+                alpha = max(alpha, standard_score)
+            else:
+                if standard_score <= alpha:
+                    return alpha
+                beta = min(beta, standard_score)
+
+            capture_moves = self.get_ordered_captures(b)
+
+            for m in capture_moves:
+
+                b.push(m)
+                score = self.q_search(b, alpha, beta, not maximizing)
+                b.pop()
+
+                if maximizing:
+                    if score >= beta:
+                        return beta
+                    alpha = max(alpha, score)
+                else:
+                    if score <= alpha:
+                        return alpha
+                    beta = min(beta, score)
+
+            return alpha if maximizing else beta
+        
+    def evaluate(self, b: chess.Board) -> int:
+        if b.is_game_over():
+            outcome = b.outcome()
+            if outcome is None or outcome.winner is None:
+                return 0  # draw
+            return 10_000_000 if outcome.winner is chess.WHITE else -10_000_000
+
+        score = 0
+        for pt in self.piece_values:
+
+            if pt != chess.KING:
+                material_value = self.piece_values[pt]
+                score += material_value * (len(b.pieces(pt, chess.WHITE)) - len(b.pieces(pt, chess.BLACK)))
+            
+            pst = self.piece_psts.get(pt)
+            if pst:
+                for sq in b.pieces(pt, chess.WHITE):
+                    score += pst[sq]
+                for sq in b.pieces(pt, chess.BLACK):
+                    score -= pst[chess.square_mirror(sq)]
+
+        w_king_sq = b.king(chess.WHITE)
+        b_king_sq = b.king(chess.BLACK)
+
+        w_king_file = chess.square_file(w_king_sq)
+        b_king_file = chess.square_file(b_king_sq)
+
+        WHITE_KINGSIDE_SHIELD = {chess.F2, chess.G2, chess.H2, chess.F3, chess.G3, chess.H3}
+        WHITE_QUEENSIDE_SHIELD = {chess.A2, chess.B2, chess.C2, chess.A3, chess.B3, chess.C3}
+        BLACK_KINGSIDE_SHIELD = {chess.F7, chess.G7, chess.H7, chess.F6, chess.G6, chess.H6}
+        BLACK_QUEENSIDE_SHIELD = {chess.A7, chess.B7, chess.C7, chess.A6, chess.B6, chess.C6}
+
+        w_pawns = b.pieces(chess.PAWN, chess.WHITE)
+        b_pawns = b.pieces(chess.PAWN, chess.BLACK)
+
+        # kingside castled
+        if w_king_file >= 5:
+            shield_missing = WHITE_KINGSIDE_SHIELD.difference(w_pawns)
+            score -= len(shield_missing) * self.PAWN_SHIELD_PENALTY
+        elif w_king_file <= 2: # queenside
+            shield_missing = WHITE_QUEENSIDE_SHIELD.difference(w_pawns)
+            score -= len(shield_missing) * self.PAWN_SHIELD_PENALTY
+
+        # kingside black
+        if b_king_file >= 5:
+            shield_missing = BLACK_KINGSIDE_SHIELD.difference(b_pawns)
+            score += len(shield_missing) * self.PAWN_SHIELD_PENALTY
+        elif b_king_file <= 2:
+            shield_missing = BLACK_QUEENSIDE_SHIELD.difference(b_pawns)
+            score += len(shield_missing) * self.PAWN_SHIELD_PENALTY
+
+        def get_coords(sq):
+            return (chess.square_file(sq), chess.square_rank(sq))
+        
+        (w_king_file, w_king_rank) = get_coords(w_king_sq)
+        (b_king_file, b_king_rank) = get_coords(b_king_sq)
+
+        for pt in [chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN]:
+            for sq in b.pieces(pt, chess.WHITE):
+                (file, rank) = get_coords(sq)
+                dist = abs(file - b_king_file) + abs(rank - b_king_rank)
+                score += (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
+
+            for sq in b.pieces(pt, chess.BLACK):
+                (file, rank) = get_coords(sq)
+                dist = abs(file - w_king_file) + abs(rank - w_king_rank)
+
+                score -= (14 - dist) * self.ATTACKER_PROXIMITY_BONUS
+
+        return score
+    
