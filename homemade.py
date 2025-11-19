@@ -336,13 +336,14 @@ class MyBot(ExampleEngine):
                 elif not maximizing and val < best_eval:
                     best_eval, current_best_move = val, m
                     current_best_pv = [m] + returned_pv
-            
+
+            best_move = current_best_move
+            pv = current_best_pv
+
             # force check?
             if abs(best_eval) > 9_000_000:
                 break
 
-            best_move = current_best_move
-            pv = current_best_pv
 
             # if (time_spent > budget / 2): break ?? improve this
 
@@ -431,7 +432,7 @@ class MyBot(ExampleEngine):
         return legal_moves
 
      # --- plain minimax (no alpha-beta) ---
-    def minimax(self, b: chess.Board, depth: int, ply: int, alpha: int, beta: int, maximizing: bool) -> tuple[int, list[chess.move]]:
+    def minimax(self, b: chess.Board, depth: int, ply: int, alpha: int, beta: int, maximizing: bool) -> tuple[int, list[chess.Move]]:
         o_alpha = alpha
         hash_key = chess.polyglot.zobrist_hash(b)
 
