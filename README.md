@@ -49,7 +49,7 @@ smoke_test_token()
 ## Upgrade to bot account
 After entering your token in the config.yml file, you can run the following command to upgrade your account to a bot account:
 ```bash
-python lichess_bot.py -u
+python lichess-bot.py -u
 ```
 
 If successful, this command will also start running your bot on lichess. Navigate to lichess.org. You should see a robot icon at the top left corner indicating that you are logged in as a bot. Press play against computer and run your bot in a test game, ensuring it is able to make moves. Your starting bot is a random move bot, so don't expect it to play well!
@@ -62,13 +62,13 @@ The only file you should change is homemade.py. The other files are driver code 
 ## Run your bot for testing
 To run your bot, simply execute the following command:
 ```bash
-python lichess_bot.py
+python lichess-bot.py
 ```
 
 Or 
 
 ```bash
-python lichess_bot.py -v
+python lichess-bot.py -v
 ```
 
 If you want to see verbose logging output.
